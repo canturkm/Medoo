@@ -1107,7 +1107,7 @@ class Medoo
 			{
 				if (strpos($key, '#') === 0)
 				{
-					$values[] = $this->fnQuote($key, $data[ $key ]);	
+					$values[] = $this->fnQuote($key, $data[ $key ]);
 					continue;
 				}
 
@@ -1171,6 +1171,101 @@ class Medoo
 		}
 
 		return $this->exec('INSERT INTO ' . $this->tableQuote($table) . ' (' . implode(', ', $fields) . ') VALUES ' . implode(', ', $stack), $map);
+	}
+
+	public function insert_or_ignore($table, $datas)
+	{
+		$stack = [];
+		$columns = [];
+		$fields = [];
+		$map = [];
+
+		if (!isset($datas[ 0 ]))
+		{
+			$datas = [$datas];
+
+		foreach ($datas as $data)
+		{
+			foreach ($data as $key => $value)
+			{
+				$columns[] = $key;
+			}
+		}
+
+		$columns = array_unique($columns);
+
+		foreach ($datas as $data)
+		{
+			$values = [];
+
+			foreach ($columns as $key)
+			{
+				if (strpos($key, '#') === 0)
+				{
+					$values[] = $this->fnQuote($key, $data[ $key ]);
+					continue;
+				}
+
+				$map_key =$this->mapKey();
+
+				$values[] = $map_key;
+
+				if (!isset($data[ $key ]))
+				{
+					$map[ $map_key ] = [null, PDO::PARAM_NULL];
+				}
+				else
+				{
+					$value = $data[ $key ];
+
+					switch (gettype($value))
+					{
+						case 'NULL':
+							$map[ $map_key ] = [null, PDO::PARAM_NULL];
+							break;
+
+						case 'array':
+							$map[ $map_key ] = [
+								strpos($key, '[JSON]') === strlen($key) - 6 ?
+									json_encode($value) :
+									serialize($value),
+								PDO::PARAM_STR
+							];
+							break;
+
+						case 'object':
+							$map[ $map_key ] = [serialize($value), PDO::PARAM_STR];
+							break;
+
+						case 'resource':
+							$map[ $map_key ] = [$value, PDO::PARAM_LOB];
+							break;
+
+						case 'boolean':
+							$map[ $map_key ] = [($value ? '1' : '0'), PDO::PARAM_BOOL];
+							break;
+
+						case 'integer':
+						case 'double':
+							$map[ $map_key ] = [$value, PDO::PARAM_INT];
+							break;
+
+						case 'string':
+							$map[ $map_key ] = [$value, PDO::PARAM_STR];
+							break;
+					}
+				}
+			}
+
+			$stack[] = '(' . implode($values, ', ') . ')';
+		}
+
+		foreach ($columns as $key)
+		{
+			$fields[] = $this->columnQuote(preg_replace("/(^#|\s*\[JSON\]$)/i", '', $key));
+		}
+
+		return $this->exec('INSERT OR IGNORE INTO ' . $this->tableQuote($table) . ' (' . implode(', ', $fields) . ') VALUES ' . implode(', ', $stack), $map);
 	}
 
 	public function update($table, $data, $where = null)
